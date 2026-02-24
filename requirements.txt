@@ -1,0 +1,22 @@
+# Data collection
+gridstatus>=0.27.0
+
+# Data processing
+pandas>=2.0
+numpy>=1.24
+openpyxl>=3.1        # for BPA Excel files
+
+# Analysis
+scipy>=1.11
+scikit-learn>=1.3
+
+# Optimization
+gurobipy>=11.0       # MIP solver (free academic license)
+
+# Plotting
+matplotlib>=3.7
+seaborn>=0.13
+
+# Utilities
+tqdm>=4.65           # progress bars for data downloads
+requests>=2.31

@@ -187,12 +187,14 @@ If you use this code or data, please cite:
 This work builds directly on:
 
 ```bibtex
-@article{emerald2025,
-  title   = {Demand response for grid-interactive datacenters using {AI} workload flexibility},
-  author  = {Colangelo, Michael and others},
-  journal = {Nature Energy},
-  year    = {2025},
-  note    = {arXiv:2507.00909}
+@misc{emerald2025,
+  title         = {Turning {AI} Data Centers into Grid-Interactive Assets: Results from a Field
+                   Demonstration in {Phoenix, Arizona}},
+  author        = {Colangelo, Philip and Coskun, Ayse K. and Megrue, Jack and others},
+  year          = {2025},
+  eprint        = {2507.00909},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.DC}
 }
 ```
 

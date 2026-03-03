@@ -31,3 +31,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# API keys — never commit
+src/data_collection/config.py

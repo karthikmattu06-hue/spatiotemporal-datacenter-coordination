@@ -3,20 +3,21 @@ Simulation driver: run MIP coordinator + all baselines over real stress events.
 
 For each stress event in the specified region:
   1. Look up the actual load at that hour across all three regions
-  2. Compute curtailment target (CURTAILMENT_FRACTION × stressed-region load)
+  2. Compute curtailment target (curtailment_fraction × fleet power)
   3. Compute headroom at non-stressed regions (P90 threshold − current load)
   4. Generate a synthetic workload ensemble (scaled to stressed-region load)
-  5. Run MIP coordinator + all 5 baselines
+  5. Run MIP coordinator + all baselines
   6. Record results
 
 Outputs:
-  data/processed/simulation/results_{region}_e{ensemble}.parquet
-  data/processed/simulation/summary_{region}_e{ensemble}.json
+  data/processed/simulation/results_{region}_e{ensemble}_f{pct}.parquet
+  data/processed/simulation/summary_{region}_e{ensemble}_f{pct}.json
 
 Usage:
     python -m src.simulation.run_simulation --region caiso --ensemble 1
     python -m src.simulation.run_simulation --region pjm --ensemble 2 --max-events 50
     python -m src.simulation.run_simulation --all-regions --ensemble 1
+    python -m src.simulation.run_simulation --region caiso --ensemble 1 --curtailment-fraction 0.25
 """
 
 from __future__ import annotations
@@ -88,6 +89,7 @@ def run_one_event(
     ensemble_id: int,
     n_nodes: int,
     mip_coordinator: MIPCoordinator,
+    curtailment_fraction: float = CURTAILMENT_FRACTION,
 ) -> list[dict]:
     """Run all strategies on one stress event. Returns list of result rows."""
     rows = []
@@ -124,14 +126,17 @@ def run_one_event(
         )
 
         # Curtailment target is fleet-relative: DR signal asks the DC operator
-        # to curtail 10% of their own fleet power, not 10% of the entire grid.
-        curtailment_target = ensemble.total_power_mw * CURTAILMENT_FRACTION
+        # to curtail curtailment_fraction of their own fleet power.
+        curtailment_target = ensemble.total_power_mw * curtailment_fraction
+
+        fleet_power_mw = ensemble.total_power_mw
 
         base_row = {
             "event_id": event_id,
             "timestamp": hour_ts,
             "stressed_region": stressed_region,
             "stressed_load_mw": stressed_load,
+            "fleet_power_mw": fleet_power_mw,
             "curtailment_target_mw": curtailment_target,
             "ensemble_id": ensemble_id,
             "n_jobs": n_jobs,
@@ -150,7 +155,7 @@ def run_one_event(
                 **base_row,
                 "strategy": "mip",
                 "curtailment_achieved_mw": result.total_curtailment_mw,
-                "curtailment_pct": 100 * result.total_curtailment_mw / stressed_load,
+                "curtailment_pct": 100 * result.total_curtailment_mw / fleet_power_mw,
                 "total_qos_cost": result.total_qos_cost,
                 "n_migrated": result.n_migrated,
                 "n_paused": result.n_paused,
@@ -165,7 +170,7 @@ def run_one_event(
         # ── Baselines ────────────────────────────────────────────────────────
         # Oracle receives the event-peak target at every hour (perfect foresight).
         # All other baselines receive the current-hour target (online).
-        oracle_target = ensemble.total_power_mw * CURTAILMENT_FRACTION * (
+        oracle_target = ensemble.total_power_mw * curtailment_fraction * (
             peak_load_mw / stressed_load
         )
 
@@ -181,7 +186,7 @@ def run_one_event(
                     **base_row,
                     "strategy": name,
                     "curtailment_achieved_mw": result.total_curtailment_mw,
-                    "curtailment_pct": 100 * result.total_curtailment_mw / stressed_load,
+                    "curtailment_pct": 100 * result.total_curtailment_mw / fleet_power_mw,
                     "total_qos_cost": result.total_qos_cost,
                     "n_migrated": result.n_migrated,
                     "n_paused": result.n_paused,
@@ -201,6 +206,7 @@ def run_simulation(
     ensemble_id: int,
     n_nodes: int = 100,
     max_events: int | None = None,
+    curtailment_fraction: float = CURTAILMENT_FRACTION,
 ) -> pd.DataFrame:
     """Run full simulation for one region and ensemble. Returns results DataFrame."""
     SIM_OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -216,9 +222,10 @@ def run_simulation(
     if max_events:
         event_ids = event_ids[:max_events]
 
+    frac_pct = int(round(curtailment_fraction * 100))
     logger.info(
         f"Region: {stressed_region.upper()}, Ensemble: {ensemble_id}, "
-        f"Events: {len(event_ids)}"
+        f"Fraction: {frac_pct}%, Events: {len(event_ids)}"
     )
 
     mip = MIPCoordinator(log_to_console=False)
@@ -235,6 +242,7 @@ def run_simulation(
             ensemble_id=ensemble_id,
             n_nodes=n_nodes,
             mip_coordinator=mip,
+            curtailment_fraction=curtailment_fraction,
         )
         all_rows.extend(rows)
 
@@ -242,15 +250,16 @@ def run_simulation(
             logger.info(f"  Progress: {i+1}/{len(event_ids)} events")
 
     results = pd.DataFrame(all_rows)
+    results["curtailment_fraction"] = curtailment_fraction
 
     # ── Save ─────────────────────────────────────────────────────────────────
-    out_path = SIM_OUT_DIR / f"results_{stressed_region}_e{ensemble_id}.parquet"
+    out_path = SIM_OUT_DIR / f"results_{stressed_region}_e{ensemble_id}_f{frac_pct}.parquet"
     results.to_parquet(out_path, index=False)
     logger.info(f"Saved: {out_path}")
 
     # ── Summary ──────────────────────────────────────────────────────────────
-    summary = build_summary(results, stressed_region, ensemble_id)
-    summary_path = SIM_OUT_DIR / f"summary_{stressed_region}_e{ensemble_id}.json"
+    summary = build_summary(results, stressed_region, ensemble_id, curtailment_fraction)
+    summary_path = SIM_OUT_DIR / f"summary_{stressed_region}_e{ensemble_id}_f{frac_pct}.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     logger.info(f"Saved summary: {summary_path}")
@@ -259,7 +268,12 @@ def run_simulation(
     return results
 
 
-def build_summary(results: pd.DataFrame, region: str, ensemble_id: int) -> dict:
+def build_summary(
+    results: pd.DataFrame,
+    region: str,
+    ensemble_id: int,
+    curtailment_fraction: float = CURTAILMENT_FRACTION,
+) -> dict:
     """Compute per-strategy aggregate metrics."""
     strategies = results["strategy"].unique()
     strategy_stats = {}
@@ -278,6 +292,7 @@ def build_summary(results: pd.DataFrame, region: str, ensemble_id: int) -> dict:
     return {
         "region": region,
         "ensemble_id": ensemble_id,
+        "curtailment_fraction": curtailment_fraction,
         "n_events": int(results["event_id"].nunique()),
         "n_hours": len(results[results["strategy"] == strategies[0]]),
         "strategies": strategy_stats,
@@ -319,17 +334,26 @@ def main():
         "--max-events", type=int, default=None,
         help="Limit number of stress events (useful for quick tests)"
     )
+    parser.add_argument(
+        "--curtailment-fraction", type=float, default=CURTAILMENT_FRACTION,
+        help=f"Fraction of fleet power to curtail (default: {CURTAILMENT_FRACTION}). "
+             "E.g. 0.10=10%%, 0.25=25%%."
+    )
     args = parser.parse_args()
 
     regions_to_run = REGIONS if args.region == "all" else [args.region]
 
     for region in regions_to_run:
         logger.info(f"\n{'='*50}")
-        logger.info(f"Running simulation: {region.upper()}, Ensemble {args.ensemble}")
+        logger.info(
+            f"Running simulation: {region.upper()}, Ensemble {args.ensemble}, "
+            f"Fraction {int(args.curtailment_fraction*100)}%"
+        )
         run_simulation(
             stressed_region=region,
             ensemble_id=args.ensemble,
             max_events=args.max_events,
+            curtailment_fraction=args.curtailment_fraction,
         )
 
 

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spatiotemporal-datacenter-coordination"
+version = "0.1.0"
+description = "MIP-based spatiotemporal workload coordinator for grid-responsive AI datacenters"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.9",
+    "pandas>=2.0",
+    "pyarrow>=12.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+fetch = [
+    "gridstatus>=0.30",
+    "requests>=2.28",
+]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[project.scripts]
+run-sweep = "src.simulation.run_sweep:run_sweep"

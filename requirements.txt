@@ -11,7 +11,6 @@ filelock==3.24.3
 fonttools==4.61.1
 frozendict==2.4.7
 gridstatus==0.34.0
-gurobipy==13.0.1
 idna==3.11
 joblib==1.5.3
 kiwisolver==1.4.9

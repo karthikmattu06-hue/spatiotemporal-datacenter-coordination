@@ -4,7 +4,7 @@ Figures for the curtailment-fraction sweep.
 Reads:  data/processed/simulation/sweep_summary.csv
 Writes: figures/simulation/sweep_curtailment.png
         figures/simulation/sweep_qos.png
-        figures/simulation/sweep_emerald_comparison.png
+        figures/simulation/sweep_comparison.png
 """
 
 from __future__ import annotations
@@ -25,34 +25,25 @@ SIM_DIR = PROCESSED_DIR / "simulation"
 FIG_DIR = Path(__file__).resolve().parents[2] / "figures" / "simulation"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-STRATEGY_ORDER  = ["mip", "oracle_optimal", "temporal_only", "spatial_naive", "no_coordination"]
+STRATEGIES      = ["mip", "temporal_only", "no_coordination"]
 STRATEGY_LABELS = {
     "mip":             "MIP Coordinator (ours)",
-    "oracle_optimal":  "Oracle Optimal",
-    "temporal_only":   "Temporal-Only (Emerald)",
-    "spatial_naive":   "Spatial-Naïve",
+    "temporal_only":   "Temporal-Only (no migration)",
     "no_coordination": "No Coordination",
 }
 STRATEGY_COLORS = {
     "mip":             "#2563eb",
-    "oracle_optimal":  "#7c3aed",
     "temporal_only":   "#f59e0b",
-    "spatial_naive":   "#10b981",
-    "no_coordination": "#94a3b8",
+    "no_coordination": "#9ca3af",
 }
 STRATEGY_LS = {
     "mip":             "-",
-    "oracle_optimal":  "--",
     "temporal_only":   "-.",
-    "spatial_naive":   ":",
     "no_coordination": ":",
 }
 
 REGIONS = ["caiso", "pjm", "bpa"]
 REGION_LABELS = {"caiso": "CAISO", "pjm": "PJM", "bpa": "BPA"}
-
-EMERALD_CURTAILMENT_PCT = 25.0   # Emerald claimed 25% cluster power reduction
-
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 
@@ -63,7 +54,8 @@ def load_sweep() -> pd.DataFrame:
             f"Missing sweep summary at {path}\n"
             "Run: python -m src.simulation.run_sweep"
         )
-    return pd.read_csv(path)
+    df = pd.read_csv(path)
+    return df[df["strategy"].isin(STRATEGIES)]
 
 
 # ── Figure 1: Curtailment achieved vs. fraction (line chart, 3 regions) ───────
@@ -75,8 +67,6 @@ def fig_curtailment(df: pd.DataFrame):
     Y: mean curtailment achieved (% of fleet power)
     Shows all strategies + diagonal reference line (perfect tracking).
     """
-    strategies = ["mip", "oracle_optimal", "temporal_only", "spatial_naive"]
-
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=True)
 
     for ax, region in zip(axes, REGIONS):
@@ -86,14 +76,7 @@ def fig_curtailment(df: pd.DataFrame):
         # Diagonal reference (perfect tracking)
         ax.plot(fracs, fracs, color="#999", lw=1.0, ls="--", label="Perfect tracking", zorder=1)
 
-        # Emerald benchmark line
-        ax.axvline(EMERALD_CURTAILMENT_PCT, color="#dc2626", lw=0.8, ls=":", alpha=0.7)
-        ax.annotate(
-            "Emerald\n25%", xy=(EMERALD_CURTAILMENT_PCT, 2),
-            color="#dc2626", fontsize=7, ha="center", va="bottom",
-        )
-
-        for strat in strategies:
+        for strat in STRATEGIES:
             s = sub[sub["strategy"] == strat].sort_values("curtailment_pct_requested")
             if s.empty:
                 continue
@@ -141,17 +124,12 @@ def fig_qos(df: pd.DataFrame):
     X: curtailment fraction requested (%)
     Y: mean QoS cost (Σ w_j × q_j)
     """
-    strategies = ["mip", "oracle_optimal", "temporal_only", "spatial_naive"]
-
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=False)
 
     for ax, region in zip(axes, REGIONS):
         sub = df[df["region"] == region]
 
-        # Emerald benchmark
-        ax.axvline(EMERALD_CURTAILMENT_PCT, color="#dc2626", lw=0.8, ls=":", alpha=0.7)
-
-        for strat in strategies:
+        for strat in STRATEGIES:
             s = sub[sub["strategy"] == strat].sort_values("curtailment_pct_requested")
             if s.empty:
                 continue
@@ -215,13 +193,9 @@ def fig_emerald_comparison(df: pd.DataFrame):
     fig, ax1 = plt.subplots(figsize=(9, 5))
 
     bars_mip  = ax1.bar(x - width/2, mip["curtailment_pct_achieved"],  width,
-                        color=STRATEGY_COLORS["mip"],          label="MIP (ours)")
+                        color=STRATEGY_COLORS["mip"],          label="MIP Coordinator (ours)")
     bars_temp = ax1.bar(x + width/2, temp["curtailment_pct_achieved"], width,
-                        color=STRATEGY_COLORS["temporal_only"], label="Temporal-Only (Emerald)")
-
-    # Emerald benchmark line
-    ax1.axhline(EMERALD_CURTAILMENT_PCT, color="#dc2626", lw=1.2, ls="--",
-                label=f"Emerald benchmark ({EMERALD_CURTAILMENT_PCT:.0f}%)")
+                        color=STRATEGY_COLORS["temporal_only"], label="Temporal-Only (no migration)")
 
     ax1.set_ylabel("Mean Curtailment Achieved (% of fleet)", fontsize=10)
     ax1.set_xlabel("DR Curtailment Depth Requested", fontsize=10)
@@ -250,12 +224,12 @@ def fig_emerald_comparison(df: pd.DataFrame):
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left", fontsize=9, frameon=True)
 
     ax1.set_title(
-        f"MIP vs. Temporal-Only (Emerald) Across DR Depths — {REGION_LABELS[region]}",
+        f"MIP vs. Temporal-Only Across DR Depths — {REGION_LABELS[region]}",
         fontsize=11, fontweight="bold",
     )
     fig.tight_layout()
 
-    out = FIG_DIR / "sweep_emerald_comparison.png"
+    out = FIG_DIR / "sweep_comparison.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {out}")

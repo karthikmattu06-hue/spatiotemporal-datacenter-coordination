@@ -42,9 +42,9 @@ FIG_DIR.mkdir(parents=True, exist_ok=True)
 # ── Style ─────────────────────────────────────────────────────────────────────
 COLORS = {
     "grid_load":    "#7c3aed",   # purple — CAISO grid
-    "baseline":     "#94a3b8",   # gray
-    "mip":          "#0d9488",   # teal
-    "temporal":     "#f59e0b",   # amber
+    "baseline":     "#9ca3af",   # gray
+    "mip":          "#2563eb",   # blue
+    "temporal":     "#f59e0b",   # orange
     "event_fill":   "#fef9c3",   # pale yellow
     "buffer_fill":  "#e5e7eb",   # light gray
 }
@@ -206,12 +206,12 @@ def plot_timeline_panel(ax, window_load, cluster_mip, cluster_temp,
     ax2.axhline(baseline_mw, color=COLORS["baseline"], lw=1.2, ls="--",
                 alpha=0.8, label=f"Baseline ({baseline_mw:.0f} MW)", zorder=2)
 
-    # TemporalOnly
+    # Temporal-Only
     ax2.plot(local_idx2, cluster_temp.values,
              color=COLORS["temporal"], lw=1.8, ls="-.", ms=3,
              label="Temporal-Only (no migration)", zorder=3)
 
-    # MIP
+    # MIP Coordinator
     ax2.plot(local_idx2, cluster_mip.values,
              color=COLORS["mip"], lw=2.2, ms=4,
              label="MIP Coordinator (ours)", zorder=4)
@@ -270,9 +270,9 @@ def plot_tier_panel(ax, mip_perf: dict[int, float], temp_perf: dict[int, float])
     mip_vals  = [mip_perf.get(t, 100.0)  for t in tiers]
     temp_vals = [temp_perf.get(t, 100.0) for t in tiers]
 
-    bars_mip  = ax.bar(x - width/2, mip_vals,  width, label="MIP (ours)",
+    bars_mip  = ax.bar(x - width/2, mip_vals,  width, label="MIP Coordinator (ours)",
                        color=COLORS["mip"],     zorder=3, edgecolor="white", lw=0.8)
-    bars_temp = ax.bar(x + width/2, temp_vals, width, label="Temporal-Only",
+    bars_temp = ax.bar(x + width/2, temp_vals, width, label="Temporal-Only (no migration)",
                        color=COLORS["temporal"], zorder=3, edgecolor="white", lw=0.8,
                        alpha=0.85)
 

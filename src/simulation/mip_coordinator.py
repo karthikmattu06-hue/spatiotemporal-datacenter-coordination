@@ -115,9 +115,11 @@ class MIPCoordinator:
     No license required — fully open-source.
     """
 
-    def __init__(self, time_limit_s: float = 30.0, log_to_console: bool = False):
-        self.time_limit_s  = time_limit_s
-        self.log_to_console = log_to_console
+    def __init__(self, time_limit_s: float = 30.0, log_to_console: bool = False,
+                 allow_migration: bool = True):
+        self.time_limit_s   = time_limit_s
+        self.log_to_console  = log_to_console
+        self.allow_migration = allow_migration
 
     def solve(
         self,
@@ -160,16 +162,18 @@ class MIPCoordinator:
                     if q <= φ:
                         acts.append((name, None, q, job.power_mw * frac))
 
-            # Pause (not available for Flex 0; requires φ ≥ 1.0)
-            if job.flex_tier.value > 0 and φ >= 1.0:
+            # Pause (DR emergency override — available for all non-Flex-0 jobs,
+            # bypasses SLA φ check; SLA constraint exemption handled below)
+            if job.flex_tier.value > 0:
                 acts.append(("pause", None, 1.0, job.power_mw))
 
-            # Migration — always available if latency + capacity allow
-            for r_prime in other_regions:
-                lat = LATENCY_MS.get((stressed_region, r_prime), 999.0)
-                if lat <= job.latency_budget_ms:
-                    q_mig = MIGRATION_QOS.get(job.job_type, 0.02)
-                    acts.append(("migrate", r_prime, q_mig, job.power_mw))
+            # Migration — available if latency + capacity allow (and not disabled)
+            if self.allow_migration:
+                for r_prime in other_regions:
+                    lat = LATENCY_MS.get((stressed_region, r_prime), 999.0)
+                    if lat <= job.latency_budget_ms:
+                        q_mig = MIGRATION_QOS.get(job.job_type, 0.02)
+                        acts.append(("migrate", r_prime, q_mig, job.power_mw))
 
             action_catalogue.append(acts)
 
@@ -230,10 +234,11 @@ class MIPCoordinator:
         row += 1
 
         # 3. SLA  (≤ φ_j → lb=-∞, ub=φ_j)
+        #    Pause is exempt: DR emergency override intentionally violates SLA bound.
         for j, job in enumerate(jobs):
             φ = job.flex_tier.max_qos_degradation
             for k, (aname, target, q, delta) in enumerate(action_catalogue[j]):
-                if q > 0:
+                if q > 0 and aname != "pause":
                     rows_idx.append(row); cols_idx.append(offsets[j] + k); data_val.append(q)
             lb_arr[row] = -np.inf
             ub_arr[row] = φ

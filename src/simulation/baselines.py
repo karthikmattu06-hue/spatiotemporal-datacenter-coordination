@@ -6,7 +6,7 @@ a DispatchResult so results are directly comparable.
 
 Baselines:
   1. NoCoordination   — do nothing (0% curtailment)
-  2. TemporalOnly     — greedy local actions only, no migration (Emerald replication)
+  2. TemporalOnly     — MIP without migration (clean ablation of spatial knob)
   3. SpatialNaive     — migrate everything possible, ignores SLA
   4. CarbonOptimized  — MIP with carbon-intensity objective (wrong signal, ablation)
   5. OracleOptimal    — MIP with perfect curtailment knowledge (offline upper bound)
@@ -15,11 +15,8 @@ Baselines:
 from __future__ import annotations
 
 import time
-from collections import defaultdict
 
 from .mip_coordinator import (
-    CURTAILMENT_FRACTION,
-    DVFS_LEVELS,
     MIGRATION_QOS,
     DispatchResult,
     JobDecision,
@@ -62,15 +59,26 @@ class NoCoordination:
         )
 
 
-# ── 2. Temporal-Only (Emerald replication) ────────────────────────────────────
+# ── 2. Temporal-Only (MIP without migration — clean ablation) ─────────────────
 
 class TemporalOnly:
-    """Greedy local-only curtailment: DVFS then pause, highest-flex jobs first.
+    """MIP coordinator with migration disabled — isolates spatial contribution.
 
-    No migration. Replicates Emerald's 'DVFS + Job Pausing, Fair' policy.
-    Priority: Flex 3 → Flex 2 → Flex 1 → Flex 0 (never touch Flex 0 locally).
-    Within a tier, apply the mildest action that contributes to the target.
+    Uses the exact same MILP formulation, solver, objective, and constraints
+    as MIPCoordinator, but with migration actions removed from the action
+    catalogue. Any QoS gap between MIP (with migration) and this baseline
+    is purely attributable to the spatial degree of freedom.
+
+    This replaces the previous greedy heuristic to eliminate optimizer
+    confounds: both strategies use the same solver, so differences in
+    outcome reflect the value of migration, not the value of optimization.
     """
+
+    def __init__(self):
+        self._coord = MIPCoordinator(
+            log_to_console=False,
+            allow_migration=False,
+        )
 
     def solve(
         self,
@@ -80,56 +88,12 @@ class TemporalOnly:
         headroom: dict[str, float],
         **kwargs,
     ) -> DispatchResult:
-        t0 = time.perf_counter()
-
-        # Sort: highest flex tier first (most tolerant), lowest power last
-        jobs_sorted = sorted(
-            ensemble.jobs,
-            key=lambda j: (-j.flex_tier.value, -j.power_mw),
+        return self._coord.solve(
+            ensemble=ensemble,
+            stressed_region=stressed_region,
+            curtailment_target_mw=curtailment_target_mw,
+            headroom=headroom,
         )
-
-        decisions: dict[str, JobDecision] = {}
-        remaining = curtailment_target_mw
-
-        for job in jobs_sorted:
-            φ = job.flex_tier.max_qos_degradation
-            if φ == 0.0:
-                # Flex 0: no local action allowed
-                decisions[job.job_id] = JobDecision(
-                    job.job_id, "nothing", None, 0.0, 0.0
-                )
-                continue
-
-            if remaining <= 0:
-                decisions[job.job_id] = JobDecision(
-                    job.job_id, "nothing", None, 0.0, 0.0
-                )
-                continue
-
-            # Try mildest DVFS level that satisfies SLA
-            action_taken = None
-            for name, (q, frac) in sorted(DVFS_LEVELS.items()):
-                if q <= φ:
-                    delta = job.power_mw * frac
-                    action_taken = (name, None, q, delta)
-                    break
-
-            # If DVFS isn't sufficient or available, try pause (last resort)
-            if action_taken is None and φ >= 1.0:
-                action_taken = ("pause", None, 1.0, job.power_mw)
-
-            if action_taken:
-                aname, target, q, delta = action_taken
-                remaining -= delta
-                decisions[job.job_id] = JobDecision(
-                    job.job_id, aname, target, q, delta
-                )
-            else:
-                decisions[job.job_id] = JobDecision(
-                    job.job_id, "nothing", None, 0.0, 0.0
-                )
-
-        return _build_result(decisions, ensemble, time.perf_counter() - t0)
 
 
 # ── 3. Spatial-Naive ─────────────────────────────────────────────────────────
@@ -182,6 +146,22 @@ class SpatialNaive:
             else:
                 decisions[job.job_id] = JobDecision(
                     job.job_id, "nothing", None, 0.0, 0.0
+                )
+
+        # Pause fallback: after migration is exhausted, pause non-Flex-0 jobs
+        # (highest flex first) until curtailment target is met
+        if remaining_curtailment > 0:
+            pausable = sorted(
+                [j for j in ensemble.jobs
+                 if j.flex_tier.value > 0 and decisions[j.job_id].action == "nothing"],
+                key=lambda j: (-j.flex_tier.value, -j.power_mw),
+            )
+            for job in pausable:
+                if remaining_curtailment <= 0:
+                    break
+                remaining_curtailment -= job.power_mw
+                decisions[job.job_id] = JobDecision(
+                    job.job_id, "pause", None, 1.0, job.power_mw
                 )
 
         return _build_result(decisions, ensemble, time.perf_counter() - t0)
@@ -296,6 +276,4 @@ def _build_result(
 ALL_BASELINES: dict[str, object] = {
     "no_coordination": NoCoordination(),
     "temporal_only":   TemporalOnly(),
-    "spatial_naive":   SpatialNaive(),
-    "oracle_optimal":  OracleOptimal(),
 }

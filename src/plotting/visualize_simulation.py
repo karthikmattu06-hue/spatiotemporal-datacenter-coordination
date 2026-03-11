@@ -44,23 +44,17 @@ REGION_LABELS = {"caiso": "CAISO", "pjm": "PJM", "bpa": "BPA"}
 ENSEMBLES = [1, 2, 3, 4]
 
 # Strategy display order and colours
-STRATEGY_ORDER = [
-    "mip", "oracle_optimal",
-    "temporal_only", "spatial_naive", "no_coordination",
-]
+STRATEGIES = ["mip", "temporal_only", "no_coordination"]
+STRATEGY_ORDER = STRATEGIES
 STRATEGY_LABELS = {
-    "mip":             "MIP (ours)",
-    "oracle_optimal":  "Oracle Optimal",
-    "temporal_only":   "Temporal-Only",
-    "spatial_naive":   "Spatial-Naïve",
+    "mip":             "MIP Coordinator (ours)",
+    "temporal_only":   "Temporal-Only (no migration)",
     "no_coordination": "No Coordination",
 }
 STRATEGY_COLORS = {
     "mip":             "#2563eb",
-    "oracle_optimal":  "#7c3aed",
     "temporal_only":   "#f59e0b",
-    "spatial_naive":   "#10b981",
-    "no_coordination": "#94a3b8",
+    "no_coordination": "#9ca3af",
 }
 
 # Shared rcParams
@@ -97,6 +91,7 @@ def load_summaries() -> pd.DataFrame:
                     **stats,
                 })
     df = pd.DataFrame(rows)
+    df = df[df["strategy"].isin(STRATEGIES)]
     logger.info(f"Loaded {len(df)} strategy×region×ensemble records")
     return df
 
@@ -147,7 +142,7 @@ def plot_curtailment_comparison(avg: pd.DataFrame, out_dir: Path):
 
     ax.set_xticks(group_positions)
     ax.set_xticklabels([REGION_LABELS[r] for r in REGIONS])
-    ax.set_ylabel("Mean Curtailment Achieved (% of grid load)")
+    ax.set_ylabel("Mean Curtailment Achieved (% of fleet power)")
     ax.set_title("Curtailment Performance by Strategy and Region\n(mean ± std across ensembles 1–4)")
     ax.legend(loc="upper right", ncol=2)
     ax.grid(True, axis="y", alpha=0.3)
@@ -332,6 +327,7 @@ def plot_action_breakdown(df: pd.DataFrame, out_dir: Path):
             if not path.exists():
                 continue
             results = pd.read_parquet(path)
+            results = results[results["strategy"].isin(STRATEGIES)]
             mip_rows = results[results["strategy"] == "mip"]
             dvfs_vals.append(mip_rows["n_dvfs"].mean())
             nothing_vals.append(mip_rows["n_nothing"].mean())
@@ -387,7 +383,6 @@ def main():
 
     plot_curtailment_comparison(avg, OUT_DIR)
     plot_qos_comparison(avg, OUT_DIR)
-    plot_oracle_gap(avg, OUT_DIR)
     plot_ensemble_sensitivity(df, OUT_DIR)
     plot_action_breakdown(df, OUT_DIR)
 

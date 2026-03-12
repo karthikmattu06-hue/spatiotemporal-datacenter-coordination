@@ -16,8 +16,8 @@ constraints. Using 5 years of public grid data from CAISO, PJM, and BPA, we show
 
 - Grid stress peaks are **temporally offset** by 4–6 hours between regions (ρ < 0.3, simultaneous
   stress < 5% of hours), providing a stable migration target.
-- The MIP coordinator achieves **15.7× lower QoS cost** than temporal-only methods at the same
-  10% curtailment depth, and extends feasible curtailment to **24–28%** via migration.
+- The MIP coordinator achieves **93% lower QoS cost** than temporal-only methods at the same
+  10% curtailment depth (clean ablation: same MILP solver, only migration disabled).
 - All results use open-source data and the HiGHS solver (no commercial license required).
 
 ---
@@ -34,12 +34,13 @@ pip install -r requirements.txt          # no Gurobi, no license needed
 # Verify MIP solver works (solves a 50-job instance in ~12 ms)
 python -m src.simulation.mip_coordinator --test
 
-# Run full curtailment-fraction sweep (3 regions × 6 depths × 5 strategies)
+# Run full curtailment-fraction sweep (3 regions × 6 depths × 3 strategies)
 python -m src.simulation.run_sweep
 
 # Generate all figures
 python -m src.plotting.visualize_sweep
 python -m src.plotting.visualize_event
+python -m src.plotting.visualize_simulation
 ```
 
 Pre-fetched grid data and simulation results are required before the sweep.
@@ -49,15 +50,15 @@ See [Pipeline](#pipeline) below.
 
 ## Key Results
 
-| Strategy | Curtailment @ 10% target | QoS cost | Notes |
+| Strategy | Curtailment @ 10% | QoS cost | Notes |
 |---|---|---|---|
-| **MIP Coordinator (ours)** | **10.1%** | **0.29** | Optimal; uses migration for Flex 0 |
-| Oracle Optimal | 10.1% | 0.28 | Full look-ahead; theoretical ceiling |
-| Temporal-Only (Emerald) | 10.0% | 4.57 | No migration; saturates at ~11.8% |
-| Spatial-Naïve | 10.2% | 0.31 | Ignores SLA; may violate Flex 0 |
+| **MIP Coordinator (ours)** | **10.1%** | **0.25** | Optimal; uses migration for Flex 0 |
+| Temporal-Only (no migration) | 10.0% | 3.69 | Same MILP, migration disabled |
 | No Coordination | 0.0% | 0.00 | Status quo |
 
-Results averaged over 2,400+ stress events (CAISO, 2020–2024, Ensemble 1).
+CAISO, 957 stress events, Ensemble 1. QoS reduction from migration: **93%**.
+Verified on 192 simultaneous-stress hours: MIP = Temporal-Only (delta = 0),
+confirming the gap is purely attributable to the spatial degree of freedom.
 
 ---
 
@@ -87,8 +88,9 @@ python -m src.simulation.run_simulation --region caiso --ensemble 1
 python -m src.simulation.run_sweep
 
 # Step 6 — Generate figures
-python -m src.plotting.visualize_sweep   # sweep_curtailment/qos/emerald_comparison.png
-python -m src.plotting.visualize_event   # event_combined.png (Emerald-style)
+python -m src.plotting.visualize_sweep       # sweep_curtailment/qos/comparison.png
+python -m src.plotting.visualize_event       # event_combined.png
+python -m src.plotting.visualize_simulation  # curtailment/qos_comparison, action_breakdown.png
 ```
 
 ---
@@ -102,6 +104,7 @@ src/
   simulation/         workload.py  mip_coordinator.py  baselines.py
                       run_simulation.py  run_sweep.py
   plotting/           visualize_stress.py  visualize_sweep.py  visualize_event.py
+                      visualize_simulation.py
 data/
   raw/{caiso,pjm,bpa}/            monthly CSVs  (.gitignored)
   processed/{caiso,pjm,bpa}/      parquet files (.gitignored)

@@ -166,6 +166,59 @@ def fig_qos(df: pd.DataFrame):
     print(f"Saved: {out}")
 
 
+# ── Figure 2b: QoS cost (LinkedIn version — relabeled for general audience) ──
+
+def fig_qos_linkedin(df: pd.DataFrame):
+    """Same as fig_qos but with labels rewritten for a non-specialist audience."""
+    linkedin_labels = {
+        "mip":             "Multi-region migration",
+        "temporal_only":   "Local-only response",
+        "no_coordination": "No response",
+    }
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=False)
+
+    for ax, region in zip(axes, REGIONS):
+        sub = df[df["region"] == region]
+
+        for strat in STRATEGIES:
+            s = sub[sub["strategy"] == strat].sort_values("curtailment_pct_requested")
+            if s.empty:
+                continue
+            ax.plot(
+                s["curtailment_pct_requested"],
+                s["qos_cost_mean"],
+                color=STRATEGY_COLORS[strat],
+                ls=STRATEGY_LS[strat],
+                marker="o", ms=4,
+                lw=1.8,
+                label=linkedin_labels[strat],
+            )
+
+        ax.set_title(REGION_LABELS[region], fontsize=11, fontweight="bold")
+        ax.set_xlabel("Power Curtailed (% of fleet)", fontsize=9)
+        ax.set_ylabel("Service Degradation Cost", fontsize=9)
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x)}%"))
+        ax.grid(axis="y", alpha=0.3)
+        ax.set_ylim(bottom=0)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=8,
+               bbox_to_anchor=(0.5, -0.12), frameon=True)
+
+    fig.suptitle(
+        "Service Impact vs. Power Curtailment Depth\n"
+        "Same curtailment achieved — dramatically different service impact",
+        fontsize=12, fontweight="bold", y=1.04,
+    )
+    fig.tight_layout()
+
+    out = FIG_DIR / "sweep_qos_linkedin.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {out}")
+
+
 # ── Figure 3: Emerald comparison — curtailment + QoS at each fraction, CAISO ─
 
 def fig_emerald_comparison(df: pd.DataFrame):
@@ -242,6 +295,7 @@ def main():
     print(f"Loaded sweep: {len(df)} rows, fractions={sorted(df['curtailment_pct_requested'].unique())}")
     fig_curtailment(df)
     fig_qos(df)
+    fig_qos_linkedin(df)
     fig_emerald_comparison(df)
     print("All sweep figures generated.")
 

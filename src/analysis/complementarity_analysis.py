@@ -276,6 +276,78 @@ def plot_diurnal_overlap(df: pd.DataFrame, regions: list[str], out_dir: Path):
     logger.info(f"Saved: {path}")
 
 
+def plot_diurnal_overlap_localtime(df: pd.DataFrame, regions: list[str], out_dir: Path):
+    """Same as plot_diurnal_overlap but with local-time annotations at each peak.
+
+    X-axis remains UTC.  At each region's peak stress hour, an annotation
+    shows the equivalent local time (CAISO/BPA = UTC-8, PJM = UTC-5).
+    """
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    colors = {"caiso": "#2563eb", "pjm": "#dc2626", "bpa": "#059669"}
+    default_colors = ["#2563eb", "#dc2626", "#059669", "#9333ea"]
+
+    # UTC offsets (standard time — stress events span multiple seasons,
+    # but the diurnal profile is averaged, so fixed offset is fine)
+    utc_offsets = {"caiso": -8, "pjm": -5, "bpa": -8}
+    tz_labels   = {"caiso": "Pacific", "pjm": "Eastern", "bpa": "Pacific"}
+
+    peak_data: dict[str, tuple[int, float, str]] = {}  # region → (utc_hour, pct, color)
+
+    for i, region in enumerate(regions):
+        col = f"{region}_stress"
+        hourly = df.groupby(df.index.hour)[col].mean() * 100
+        color = colors.get(region, default_colors[i % len(default_colors)])
+        ax.plot(range(24), hourly, marker="o", markersize=4, linewidth=2,
+                color=color, label=region.upper())
+
+        peak_utc = int(hourly.idxmax())
+        peak_pct = float(hourly.max())
+        peak_data[region] = (peak_utc, peak_pct, color)
+
+    ax.set_xticks(range(0, 24, 2))
+    ax.set_xticklabels([f"{h:02d}:00" for h in range(0, 24, 2)], rotation=45)
+    ax.set_xlabel("Hour of Day (UTC)")
+    ax.set_ylabel("Stress Frequency (%)")
+    ax.set_title("Regional Stress by Hour of Day — Temporal Offset (UTC)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Annotate known peak windows
+    ax.axvspan(0, 4, alpha=0.05, color="#2563eb", label="_CAISO peak")
+    ax.axvspan(18, 23, alpha=0.05, color="#dc2626", label="_PJM peak")
+
+    # Annotate each region's peak with local time
+    y_offsets = {"caiso": 12, "pjm": 12, "bpa": -18}
+    for region, (utc_hour, pct, color) in peak_data.items():
+        local_hour = (utc_hour + utc_offsets[region]) % 24
+        tz = tz_labels[region]
+        # Format as "6 PM Pacific"
+        if local_hour == 0:
+            local_str = "12 AM"
+        elif local_hour < 12:
+            local_str = f"{local_hour} AM"
+        elif local_hour == 12:
+            local_str = "12 PM"
+        else:
+            local_str = f"{local_hour - 12} PM"
+
+        ax.annotate(
+            f"{local_str} {tz}",
+            xy=(utc_hour, pct),
+            xytext=(0, y_offsets.get(region, 12)),
+            textcoords="offset points",
+            fontsize=9, fontweight="bold", color=color,
+            ha="center", va="bottom",
+            arrowprops=dict(arrowstyle="->", color=color, lw=1.2),
+        )
+
+    path = out_dir / "pairwise_stress_overlap_localtime.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"Saved: {path}")
+
+
 def plot_simultaneous_stress(df: pd.DataFrame, regions: list[str], out_dir: Path):
     """Monthly breakdown of simultaneous multi-region stress hours."""
     stress_cols = [f"{r}_stress" for r in regions]
@@ -422,6 +494,7 @@ def main():
 
     plot_heatmap_overlay(df, available_regions, fig_dir)
     plot_diurnal_overlap(df, available_regions, fig_dir)
+    plot_diurnal_overlap_localtime(df, available_regions, fig_dir)
     plot_simultaneous_stress(df, available_regions, fig_dir)
 
     logger.info("Complementarity analysis complete.")

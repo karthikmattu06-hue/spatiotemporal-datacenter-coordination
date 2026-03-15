@@ -219,6 +219,54 @@ def fig_qos_linkedin(df: pd.DataFrame):
     print(f"Saved: {out}")
 
 
+# ── Figure 2c: QoS cost (LinkedIn v2 — PJM only, no "No response" line) ─────
+
+def fig_qos_linkedin_v2(df: pd.DataFrame):
+    """Single-panel PJM-only version of the LinkedIn QoS figure."""
+    linkedin_labels = {
+        "mip":           "Multi-region migration",
+        "temporal_only": "Local-only response",
+    }
+    strats = ["mip", "temporal_only"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+
+    sub = df[df["region"] == "pjm"]
+    for strat in strats:
+        s = sub[sub["strategy"] == strat].sort_values("curtailment_pct_requested")
+        if s.empty:
+            continue
+        ax.plot(
+            s["curtailment_pct_requested"],
+            s["qos_cost_mean"],
+            color=STRATEGY_COLORS[strat],
+            ls=STRATEGY_LS[strat],
+            marker="o", ms=5,
+            lw=2.0,
+            label=linkedin_labels[strat],
+        )
+
+    ax.set_title("PJM", fontsize=11, fontweight="bold")
+    ax.set_xlabel("Power Curtailed (% of fleet)", fontsize=10)
+    ax.set_ylabel("Service Degradation Cost", fontsize=10)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x)}%"))
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_ylim(bottom=0)
+    ax.legend(fontsize=9, frameon=True)
+
+    fig.suptitle(
+        "Service Impact vs. Power Curtailment Depth\n"
+        "Same curtailment achieved — dramatically different service impact",
+        fontsize=12, fontweight="bold", y=1.04,
+    )
+    fig.tight_layout()
+
+    out = FIG_DIR / "sweep_qos_linkedin_v2.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {out}")
+
+
 # ── Figure 3: Emerald comparison — curtailment + QoS at each fraction, CAISO ─
 
 def fig_emerald_comparison(df: pd.DataFrame):
@@ -296,6 +344,7 @@ def main():
     fig_curtailment(df)
     fig_qos(df)
     fig_qos_linkedin(df)
+    fig_qos_linkedin_v2(df)
     fig_emerald_comparison(df)
     print("All sweep figures generated.")
 
